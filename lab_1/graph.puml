@@ -1,0 +1,222 @@
+@startuml
+skinparam state {
+  BackgroundColor White
+  BorderColor Black
+  FontColor Black
+}
+
+title Граф состояний и переходов НКА 
+
+' Определение состояний
+state start <<start>>
+state s0
+state id1
+state id2
+state id3
+state id4
+state id5
+state id6
+state id7
+state id_fin <<final>>
+state sp1
+state sp2
+state space_fin <<ignore>>
+state dec1
+state dec2
+state dec_int_fin <<final>>
+state dec3
+state dec4
+state dec_float_fin <<final>>
+state thr1
+state thr2
+state thr3
+state thr_fin <<final>>
+state sev1
+state sev2
+state sev3
+state sev_fin <<final>>
+state ch1
+state ch2
+state ch3
+state ch4
+state ch5
+state ch_fin <<final>>
+state str1
+state str2
+state str3
+state str_fin <<final>>
+state com1
+state com2
+state com3
+state com_fin <<final>>
+state op1
+state op_plus <<final>>
+state op_minus <<final>>
+state op_div <<final>>
+state op_eq <<final>>
+
+' Начальное состояние
+[*] --> start
+start --> s0
+
+' ID: [a-zA-Z][0-9]{,3}[a-zA-Z]
+s0 --> id1 : [a-zA-Z]
+id1 --> id2 : ε
+id2 --> id3 : [0-9]
+id3 --> id4 : ε
+id4 --> id5 : [0-9]
+id5 --> id6 : ε
+id6 --> id7 : [0-9]
+id2 --> id_fin : [a-zA-Z]
+id4 --> id_fin : [a-zA-Z]
+id6 --> id_fin : [a-zA-Z]
+id7 --> id_fin : [a-zA-Z]
+
+' SPACE: [ \t\r\n]+ {ignore}
+s0 --> sp1 : ε
+sp1 --> sp2 : [ \\t\\r\\n]
+sp2 --> sp2 : [ \\t\\r\\n]
+sp2 --> space_fin : ε
+
+' Decimal: [0-9]+([.][0-9]*)?
+s0 --> dec1 : ε
+dec1 --> dec2 : [0-9]
+dec2 --> dec2 : [0-9]
+dec2 --> dec_int_fin : ε
+dec2 --> dec3 : "."
+dec3 --> dec4 : [0-9]
+dec4 --> dec4 : [0-9]
+dec4 --> dec_float_fin : ε
+dec3 --> dec_float_fin : ε
+
+' Three: [0-2]+[x][3]
+s0 --> thr1 : ε
+thr1 --> thr2 : [0-2]
+thr2 --> thr2 : [0-2]
+thr2 --> thr3 : "x"
+thr3 --> thr_fin : "3"
+
+' Seven: [0-6]+[x][7]
+s0 --> sev1 : ε
+sev1 --> sev2 : [0-6]
+sev2 --> sev2 : [0-6]
+sev2 --> sev3 : "x"
+sev3 --> sev_fin : "7"
+
+' Char: [']([]|[\'])?[']
+s0 --> ch1 : ε
+ch1 --> ch2 : "'"
+ch2 --> ch3 : ε
+ch3 --> ch4 : "any"
+ch4 --> ch5 : ε
+ch5 --> ch_fin : "'"
+ch3 --> ch5 : "\\'"
+ch2 --> ch_fin : "'"
+
+' String: ["]([]|[\"])*["][ \t\r\n]+
+s0 --> str1 : ε
+str1 --> str2 : '"'
+str2 --> str2 : "any"
+str2 --> str2 : '\\"'
+str2 --> str3 : '"'
+str3 --> str3 : [ \\t\\r\\n]
+str3 --> str_fin : ε
+
+' Comment: [/][/]([]*)[\n]
+s0 --> com1 : ε
+com1 --> com2 : "/"
+com2 --> com3 : "/"
+com3 --> com3 : "any"
+com3 --> com_fin : "\\n"
+
+' Operations: [ +\-/=]
+s0 --> op1 : ε
+op1 --> op_plus : "+"
+op1 --> op_minus : "-"
+op1 --> op_div : "/"
+op1 --> op_eq : "="
+
+' Стилизация состояний
+state start : Начало
+state s0 : Стартовое состояние
+
+state id1 : ID часть 1
+state id2 : ID часть 2
+state id3 : ID часть 3
+state id4 : ID часть 4
+state id5 : ID часть 5
+state id6 : ID часть 6
+state id7 : ID часть 7
+state id_fin : Идентификатор
+
+state sp1 : Space 1
+state sp2 : Space 2
+state space_fin : Пробел (игнор)
+
+state dec1 : Decimal 1
+state dec2 : Decimal 2
+state dec_int_fin : Целое число
+state dec3 : Decimal 3 (точка)
+state dec4 : Decimal 4
+state dec_float_fin : Дробное число
+
+state thr1 : Three 1
+state thr2 : Three 2
+state thr3 : Three 3 (x)
+state thr_fin : Троичное число
+
+state sev1 : Seven 1
+state sev2 : Seven 2
+state sev3 : Seven 3 (x)
+state sev_fin : Семеричное число
+
+state ch1 : Char 1
+state ch2 : Char 2 (')
+state ch3 : Char 3 (символ)
+state ch4 : Char 4 (символ)
+state ch5 : Char 5 (')
+state ch_fin : Символ
+
+state str1 : String 1
+state str2 : String 2 (внутри)
+state str3 : String 3 (пробелы)
+state str_fin : Строка
+
+state com1 : Comment 1
+state com2 : Comment 2 (/)
+state com3 : Comment 3 (текст)
+state com_fin : Комментарий
+
+state op1 : Operation 1
+state op_plus : Оператор +
+state op_minus : Оператор -
+state op_div : Оператор /
+state op_eq : Оператор =
+
+' Цветовое оформление
+state id_fin #LightGreen
+state dec_int_fin #LightGreen
+state dec_float_fin #LightGreen
+state thr_fin #LightGreen
+state sev_fin #LightGreen
+state ch_fin #LightGreen
+state str_fin #LightGreen
+state com_fin #LightGreen
+state op_plus #LightGreen
+state op_minus #LightGreen
+state op_div #LightGreen
+state op_eq #LightGreen
+state space_fin #LightYellow
+
+' Примечания
+note right of id_fin : Идентификаторы\nбуква + 0-3 цифры + буква
+note right of space_fin : Пробельные символы\nигнорируются
+note right of dec_float_fin : Десятичные числа\nцелые и дробные
+note right of thr_fin : Троичные числа\n[0-2]+x3
+note right of sev_fin : Семеричные числа\n[0-6]+x7
+note right of ch_fin : Символьные константы\nв одинарных кавычках
+note right of str_fin : Строковые константы\nв двойных кавычках\nс завершающими пробелами
+note right of com_fin : Однострочные комментарии\n// до конца строки
+note right of op_plus : Операторы\n+ - / =
+
+@enduml
