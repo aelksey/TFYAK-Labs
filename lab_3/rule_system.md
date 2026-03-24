@@ -1,5 +1,6 @@
 ### My Rule System
 
+```
 program programItem*
 programItem operator | function
 block "{" statementList "}"
@@ -33,12 +34,8 @@ function type? "(" argList ")" block
 argList (type? id ("," type? id)*)?
 returnValue "return" type? expr ";"
 cycleBreak "leave;"
-
-### TODO: Add Type
-
-### Finish rule system
-
-
+```
+### Variant
 ![alt text](image.png)
 
 
