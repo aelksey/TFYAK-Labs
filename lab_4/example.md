@@ -83,3 +83,5 @@ intel (int n0n, int m0m){
 // Inline-функции
 intel (int n0n){return n0n;}
 ```
+
+# TODO : Rewrite example so it satisfies current rule system

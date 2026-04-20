@@ -37,6 +37,3 @@ switchTail ~ "nooption"
 function type ? "(" argList ")" block
 argList ( type ? id ( "," type ? id ) * ) ?
 returnValue "return" type ? expr ";"
-
-
-@ int x1y
