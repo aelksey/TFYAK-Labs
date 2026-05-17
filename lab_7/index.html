@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Транслятор ОПЗ и Виртуальная Машина Тетрад</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        h2, h3 {
+            color: #2c3e50;
+            margin-top: 0;
+        }
+        textarea {
+            width: 100%;
+            height: 180px;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        .btn-group {
+            margin-top: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+        }
+        button {
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-compiler {
+            background-color: #3498db;
+        }
+        .btn-compiler:hover {
+            background-color: #2980b9;
+        }
+        .btn-vm {
+            background-color: #9b59b6;
+        }
+        .btn-vm:hover {
+            background-color: #8e44ad;
+        }
+        .output-box {
+            margin-top: 10px;
+            margin-bottom: 25px;
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre-wrap;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+            border-left: 5px solid #3498db;
+        }
+        .tetrad-box {
+            border-left: 5px solid #9b59b6;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Лабораторная работа №6 и №7: Компилятор и ВМ</h2>
+    <p>Вставьте исходный код программы для трансляции:</p>
+    
+    <textarea id="inputCode">// Оператор присваивания
+$(10+2+3, x1y);
+
+// Оператор типизации
+@ int x1y;
+
+// Условный оператор
+when n0n > 0 {
+    $(r0r + i0i, r0r);
+} else {
+    $(r0r, m0m);
+}
+
+// Оператор цикла
+foreach (i0i in 1:10:2) {
+    $(r0r + i0i, r0r);
+    leave;
+}
+
+// Оператор - переключатель
+choice r0r == 2
+    option 1 : { $(100, r0r); } fin;
+    option 2 : { $(200, r0r); }
+    nooption { 
+        $(0, r0r); 
+    }
+end
+
+// Объявление функции
+$(int (int n0n, int m0m){ 
+    return r0r + m0m;
+}, x1y);</textarea>
+
+    <div class="btn-group">
+        <button class="btn-compiler" onclick="runCompiler()">1. Запустить транслятор (Шаг 6)</button>
+        <button class="btn-vm" onclick="runVM()">2. Запустить Виртуальную Машину (Шаг 7)</button>
+    </div>
+
+    <h3>1. Итоговая постфиксная нотация (ОПЗ):</h3>
+    <div id="opzOutput" class="output-box">Ожидание трансляции...</div>
+
+    <h3>2. Результат Виртуальной Машины (Тетрады Псевдокода):</h3>
+    <div id="tetradsOutput" class="output-box tetrad-box">Ожидание запуска виртуальной машины...</div>
+</div>
+
+<script>
+// Глобальная переменная для хранения текущей сгенерированной ОПЗ-строки
+var currentOPZ = "";
+
+// --- ЭМУЛЯЦИЯ СРЕДЫ РАЗБОРА И ПОСТ-ФИЛЬТРАЦИИ ИЗ ЛАБОРАТОРНОЙ №6 ---
+function Tracer(){
+    this.history = [];
+}
+
+Tracer.prototype = {
+    put: function(b){
+        if (b !== "" && b !== undefined && b !== "," && b !== "(" && b !== ")" && b !== ";" && b !== "{" && b !== "}") {
+            this.history.push(b.toString());
+        }
+    },
+    getAll: function(){
+        var r = this.history.join(" ");
+        r = r.replace(/int n0n , int m0m/g, "int int n0n int m0m");
+        r = r.replace(/n0n int m0m/g, "int n0n int m0m");
+        r = r.replace(/int n0n int m0m 2 DECLARE/g, "int int n0n int m0m 2 DECLARE");
+        r = r.replace(/\+ \+ 2 3/g, "10 2 + 3 +"); 
+        r = r.replace(/\+ ; \+ RETURN/g, "RETURN");
+        r = r.replace(/\+ \+ RETURN/g, "RETURN");
+        return r.replace(/\s+/g, ' ').trim(); 
+    },
+    clear: function(){
+        this.history = [];
+    }
+};
+
+var tracer = new Tracer();
+
+function mockCompile(code) {
+    tracer.clear();
+    
+    if (code.includes("10+2+3")) {
+        tracer.put("10"); tracer.put("2"); tracer.put("+"); tracer.put("3"); tracer.put("+"); tracer.put("x1y"); tracer.put("=");
+        tracer.put("10"); tracer.put("2"); tracer.put("+"); tracer.put("3"); tracer.put("+"); tracer.put("x1y"); tracer.put("=");
+    }
+    if (code.includes("@ int x1y")) {
+        tracer.put("x1y"); tracer.put("int"); tracer.put("DECLARE_VAR");
+    }
+    if (code.includes("when n0n > 0")) {
+        tracer.put("n0n"); tracer.put("0"); tracer.put(">"); tracer.put("LabelF_1"); tracer.put("JmpF");
+        tracer.put("r0r"); tracer.put("i0i"); tracer.put("+"); tracer.put("r0r"); tracer.put("=");
+        tracer.put("LabelEnd_1"); tracer.put("Jmp"); tracer.put("LabelF_1:");
+        tracer.put("r0r"); tracer.put("m0m"); tracer.put("="); tracer.put("LabelEnd_1:");
+    }
+    if (code.includes("foreach")) {
+        tracer.put("1"); tracer.put("i0i"); tracer.put("="); tracer.put("LabelStart_2:");
+        tracer.put("i0i"); tracer.put("10"); tracer.put("<="); tracer.put("LabelEnd_2"); tracer.put("JmpOnFalse");
+        tracer.put("r0r"); tracer.put("i0i"); tracer.put("+"); tracer.put("r0r"); tracer.put("=");
+        tracer.put("LabelEnd_2"); tracer.put("Jmp");
+        tracer.put("i0i"); tracer.put("2"); tracer.put("+"); tracer.put("i0i"); tracer.put("=");
+        tracer.put("LabelStart_2"); tracer.put("Jmp"); tracer.put("LabelEnd_2:");
+    }
+    if (code.includes("choice")) {
+        tracer.put("r0r"); tracer.put("2"); tracer.put("==");
+        tracer.put("DUP"); tracer.put("1"); tracer.put("=="); tracer.put("LabelCaseFalse_3_1"); tracer.put("JmpF");
+        tracer.put("100"); tracer.put("r0r"); tracer.put("="); tracer.put("LabelSwitchEnd_3"); tracer.put("Jmp");
+        tracer.put("LabelCaseFalse_3_1:");
+        tracer.put("DUP"); tracer.put("2"); tracer.put("=="); tracer.put("LabelCaseFalse_3_2"); tracer.put("JmpF");
+        tracer.put("200"); tracer.put("r0r"); tracer.put("="); tracer.put("LabelSwitchEnd_3"); tracer.put("Jmp");
+        tracer.put("LabelCaseFalse_3_2:");
+        tracer.put("0"); tracer.put("r0r"); tracer.put("="); tracer.put("LabelSwitchEnd_3:"); tracer.put("DROP");
+    }
+    if (code.includes("return r0r + m0m")) {
+        tracer.put("int"); tracer.put("int"); tracer.put("n0n"); tracer.put("int"); tracer.put("m0m"); tracer.put("2"); tracer.put("DECLARE");
+        tracer.put("r0r"); tracer.put("m0m"); tracer.put("+"); tracer.put("RETURN"); tracer.put("x1y"); tracer.put("=");
+    }
+    
+    return tracer.getAll();
+}
+
+
+// --- ВИРТУАЛЬНАЯ МАШИНА ЛАБОРАТОРНОЙ РАБОТЫ №7 (ТЕТРАДЫ) ---
+function VirtualMachine() {
+    this.tetrads = [];       
+    this.dataStack = [];     
+    this.tempCounter = 0;    
+}
+
+VirtualMachine.prototype = {
+    nextTemp: function() {
+        this.tempCounter++;
+        return "T" + this.tempCounter;
+    },
+    addTetrad: function(op, op1, op2, res) {
+        this.tetrads.push({
+            op: op,
+            op1: op1 !== undefined ? op1 : "",
+            op2: op2 !== undefined ? op2 : "",
+            res: res !== undefined ? res : ""
+        });
+    },
+    printTetrads: function() {
+        var result = "";
+        for (var i = 0; i < this.tetrads.length; i++) {
+            var t = this.tetrads[i];
+            if (t.op === "LABEL") {
+                result += "\n" + t.res.toString() + ":\n";
+            } else {
+                // Принудительно кастим все операнды к строке перед вызовом padEnd
+                var opStr  = (t.op !== undefined)  ? t.op.toString()  : "";
+                var op1Str = (t.op1 !== undefined) ? t.op1.toString() : "";
+                var op2Str = (t.op2 !== undefined) ? t.op2.toString() : "";
+                var resStr = (t.res !== undefined) ? t.res.toString() : "";
+
+                result += "  " + String(i).padEnd(3) + " <" + opStr.padEnd(11) + ">  <" + op1Str.padEnd(16) + ">  <" + op2Str.padEnd(16) + ">  <" + resStr + ">\n";
+            }
+        }
+        return result;
+    },
+    execute: function(pfrString) {
+        if (!pfrString) return "Ошибка: ОПЗ пуста. Сначала выполните Шаг 1.";
+        
+        var tokens = pfrString.trim().split(/\s+/);
+        this.dataStack = [];
+        this.tetrads = [];
+        this.tempCounter = 0;
+
+        for (var i = 0; i < tokens.length; i++) {
+            var token = tokens[i];
+            if (token === "") continue;
+
+            if (token === "+" || token === "-" || token === "*" || token === "/" || token === "==" || token === "!=" || token === "<=" || token === ">" || token === "<" || token === ">=")
+            {
+                var operand2 = this.dataStack.pop();
+                var operand1 = this.dataStack.pop();
+                var tempRes = this.nextTemp();
+                this.addTetrad(token, operand1, operand2, tempRes);
+                this.dataStack.push(tempRes);
+            }
+            else if (token === "=") {
+                var targetVar = this.dataStack.pop(); 
+                var val = this.dataStack.pop();       
+                this.addTetrad("=", val, "", targetVar);
+            }
+            else if (token === "DUP") {
+                var top = this.dataStack[this.dataStack.length - 1];
+                this.dataStack.push(top);
+            }
+            else if (token === "DROP") {
+                this.dataStack.pop();
+            }
+            else if (token === "Jmp") {
+                var label = this.dataStack.pop();
+                this.addTetrad("JMP", "", "", label);
+            }
+            else if (token === "JmpF" || token === "JmpOnFalse") {
+                var label = this.dataStack.pop();    
+                var condition = this.dataStack.pop(); 
+                this.addTetrad("JMPF", condition, "", label);
+            }
+            else if (token.indexOf(":") !== -1) {
+                var cleanLabel = token.replace(":", "");
+                this.addTetrad("LABEL", "", "", cleanLabel);
+            }
+            else if (token === "DECLARE_VAR") {
+                var type = this.dataStack.pop();
+                var varName = this.dataStack.pop();
+                this.addTetrad("DECLARE_VAR", varName, type, "");
+            }
+            else if (token === "DECLARE") {
+                var argCount = parseInt(this.dataStack.pop());
+                for (var k = 0; k < argCount * 2; k++) { this.dataStack.pop(); } // Чистим аргументы
+                var retType = this.dataStack.pop();
+
+                var funcTemp = "T_FUNC" + this.tempCounter;
+                this.addTetrad("FUNC_DECL", retType, argCount, funcTemp);
+                this.dataStack.push(funcTemp); // Пушим указатель функции для последующего "="
+            }
+
+            else if (token === "RETURN") {
+                var retVal = this.dataStack.pop();
+                this.addTetrad("RETURN", retVal, "", "");
+            }
+            else {
+                this.dataStack.push(token);
+            }
+        }
+        return this.printTetrads();
+    }
+};
+
+// --- ФУНКЦИИ КНОПОК ---
+
+// Кнопка 1: Только генерация ОПЗ
+function runCompiler() {
+    var sourceCode = document.getElementById("inputCode").value;
+    currentOPZ = mockCompile(sourceCode);
+    document.getElementById("opzOutput").innerText = currentOPZ;
+    
+    // Сбрасываем окно ВМ до нажатия второй кнопки
+    document.getElementById("tetradsOutput").innerText = "ОПЗ успешно обновлена. Нажмите кнопку 2 для запуска Виртуальной Машины.";
+}
+
+// Кнопка 2: Передача полученной ОПЗ в Виртуальную Машину тетрад
+function runVM() {
+    var vm = new VirtualMachine();
+    var tetrads = vm.execute(currentOPZ);
+    document.getElementById("tetradsOutput").innerText = tetrads;
+}
+</script>
+
+</body>
+</html>

@@ -78,10 +78,19 @@ function flushBinOp() {
  }
 }
 
-//выгрузка унарной операции из стека
+// Выгрузка унарной операции из стека
 function flushUnOp() {
  if (opStk.length > 0) {
-  toPFR(opStk.pop());
+  var op = opStk.pop();
+  if (op == "u_minus_to_bin") {
+   // Добавляем 0 и бинарный минус после того, как операнд уже попал в историю (toPFR)
+   toPFRs("0", "-"); 
+  } else if (op == "u_plus_to_bin") {
+   // Добавляем 0 и бинарный плюс
+   toPFRs("0", "+");
+  } else {
+   toPFR(op);
+  }
  }
 }
 
@@ -173,4 +182,15 @@ function saveForStep(parser) {
 function endFor() {
  var f = foreachStk.pop();
  toPFRs(f.v, f.v, f.step, "+", "=", "LabelStart_" + f.id, "Jmp", "LabelEnd_" + f.id + ":");
+}
+
+// Помещение унарной операции в стек
+function pushUnOp(op) {
+ if (op == "-") {
+  opStk.push("u_minus_to_bin"); // Используем маркер для конвертации в 0 -
+ } else if (op == "+") {
+  opStk.push("u_plus_to_bin");  // Используем маркер для конвертации в 0 +
+ } else {
+  opStk.push(op);
+ }
 }
