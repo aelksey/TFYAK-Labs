@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Универсальный транслятор, Генератор тетрад и Интерпретатор ВМ</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        h2, h3 { color: #2c3e50; margin-top: 0; }
+        textarea {
+            width: 100%;
+            height: 250px;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        .btn-group {
+            margin-top: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        button {
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-compiler { background-color: #3498db; }
+        .btn-compiler:hover { background-color: #2980b9; }
+        .btn-vm { background-color: #9b59b6; }
+        .btn-vm:hover { background-color: #8e44ad; }
+        .btn-interp { background-color: #e67e22; }
+        .btn-interp:hover { background-color: #d35400; }
+        
+        .output-box {
+            margin-top: 10px;
+            margin-bottom: 25px;
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre-wrap;
+            font-size: 14px;
+            max-height: 350px;
+            overflow-y: auto;
+            border-left: 5px solid #3498db;
+        }
+        .tetrad-box { border-left: 5px solid #9b59b6; }
+        .interp-box { border-left: 5px solid #e67e22; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Полный цикл универсальной компиляции и симуляции ВМ</h2>
+    <p>Вы можете изменить, дополнить или написать абсолютно любой код программы в текстовом поле:</p>
+    
+    <textarea id="inputCode">// Оператор присваивания
+$(10+2+3, x1y);
+
+// Оператор типизации
+@ int x1y;
+
+// Условный оператор (зададим n0n = 5 для демонстрации выполнения)
+when n0n > 0 {
+    $(r0r + i0i, r0r);
+} else {
+    $(r0r, m0m);
+}
+
+// Оператор цикла
+foreach (i0i in 1:10:2) {
+    $(r0r + i0i, r0r);
+    leave;
+}
+
+// Оператор - переключатель
+choice r0r == 2
+    option 1 : { $(100, r0r); } fin;
+    option 2 : { $(200, r0r); }
+    nooption { 
+        $(0, r0r); 
+    }
+end
+
+// Объявление функций
+$(int (int n0n, int m0m){
+    $(m0m + r0r, r0r);
+    $(0, r0r); 
+    return r0r + m0m;
+}, x1y);</textarea>
+
+    <div class="btn-group">
+        <button class="btn-compiler" onclick="runCompiler()">1. Запустить транслятор (ОПЗ)</button>
+        <button class="btn-vm" onclick="runVM()">2. Сгенерировать Тетрады</button>
+        <button class="btn-interp" onclick="runInterpreter()">3. Интерпретировать Тетрады (Выполнение)</button>
+    </div>
+
+    <h3>1. Результат динамической ОПЗ-трансляции (Шаг 6):</h3>
+    <div id="opzOutput" class="output-box">Ожидание трансляции...</div>
+
+    <h3>2. Сгенерированные Тетрады Псевдокода (Шаг 7):</h3>
+    <div id="tetradsOutput" class="output-box tetrad-box">Ожидание генерации тетрад...</div>
+
+    <h3>3. Таблица распределения памяти и вычислений Интерпретатора:</h3>
+    <div id="interpOutput" class="output-box interp-box">Ожидание запуска симуляции...</div>
+</div>
+
+<script>
+var currentOPZ = "";
+var globalVM = null;
+
+// --- УНИВЕРСАЛЬНЫЙ СИНТАКСИЧЕСКИЙ АНАЛИЗАТОР (ОПЗ КОМПИЛЯТОР) ---
+function UniversalCompiler() {
+    this.tokens = [];
+    this.ptr = 0;
+    this.output = [];
+    this.opCounter = 0;
+    this.loopStack = []; // Стек дляleave внутри foreach
+}
+
+UniversalCompiler.prototype = {
+    tokenize: function(source) {
+        // Убираем комментарии
+        var cleanCode = source.replace(/\/\/.*$/gm, "");
+        // Регулярное выражение для всех лексем
+        var regex = /\$\(|[A-Za-z][A-Za-z0-9]*|[0-9]+|==|!=|<=|>=|&&|\|\||[\+\-\*\/\(\)\{\}\:\,\@\=\>\<\;]|when|else|foreach|in|choice|option|nooption|end|fin|return|leave/g;
+        this.tokens = cleanCode.match(regex) || [];
+        this.ptr = 0;
+        this.output = [];
+        this.opCounter = 0;
+    },
+
+    peek: function() { return this.tokens[this.ptr] || null; },
+    next: function() { return this.tokens[this.ptr++] || null; },
+
+    parseProgram: function() {
+        while (this.peek() !== null) {
+            this.parseStatement();
+        }
+        return this.output.join(" ");
+    },
+
+    parseStatement: function() {
+        var t = this.peek();
+        if (t === "$") { this.parseAssignmentOrFunc(); }
+        else if (t === "@") { this.parseTypization(); }
+        else if (t === "when") { this.parseCondition(); }
+        else if (t === "foreach") { this.parseCycle(); }
+        else if (t === "choice") { this.parseSwitch(); }
+        else if (t === "return") { this.parseReturn(); }
+        else if (t === "leave") { this.next(); this.next(); if(this.loopStack.length > 0) this.output.push("LabelEnd_" + this.loopStack[this.loopStack.length-1], "Jmp"); }
+        else if (t === "{" || t === "}" || t === ";") { this.next(); }
+        else { this.next(); }
+    },
+
+    parseAssignmentOrFunc: function() {
+        this.next(); // "$"
+        this.next(); // "("
+        
+        // Проверяем: объявление функции или математическое выражение?
+        var nextT = this.peek();
+        var types = ["int", "char", "string", "float", "void"];
+        if (types.indexOf(nextT) !== -1 && this.tokens[this.ptr + 1] === "(") {
+            // Это объявление функции!
+            var retType = this.next();
+            this.next(); // "("
+            
+            // Парсим аргументы функции
+            var args = [];
+            while (this.peek() !== ")" && this.peek() !== null) {
+                if (types.indexOf(this.peek()) !== -1) {
+                    var aType = this.next();
+                    var aId = this.next();
+                    args.push({type: aType, id: aId});
+                    if (this.peek() === ",") this.next();
+                } else { this.next(); }
+            }
+            this.next(); // ")"
+            
+            // Выталкиваем заголовок декларации функции
+            this.output.push(retType);
+            for(var i=0; i<args.length; i++) {
+                this.output.push(args[i].type, args[i].id);
+            }
+            this.output.push(args.length, "DECLARE");
+            
+            // Парсим тело функции (блок)
+            this.parseStatement(); 
+            
+            this.next(); // ","
+            var fName = this.next();
+            this.output.push(fName, "=");
+            this.next(); // ")"
+            this.next(); // ";"
+        } else {
+            // Это обычное выражение присваивания
+            var exprTokens = [];
+            var bracketCount = 0;
+            while (!(this.peek() === "," && bracketCount === 0) && this.peek() !== null) {
+                var tk = this.next();
+                if (tk === "(") bracketCount++;
+                if (tk === ")") bracketCount--;
+                exprTokens.push(tk);
+            }
+            this.next(); // ","
+            var targetVar = this.next();
+            this.next(); // ")"
+            this.next(); // ";"
+            
+            // Переводим внутреннее математическое выражение в ОПЗ
+            this.compileMathExpression(exprTokens);
+            this.output.push(targetVar, "=");
+        }
+    },
+
+    parseTypization: function() {
+        this.next(); // "@"
+        var type = this.next();
+        var id = this.next();
+        this.next(); // ";"
+        this.output.push(id, type, "DECLARE_VAR");
+    },
+
+    parseCondition: function() {
+        var id = ++this.opCounter;
+        this.next(); // "when"
+        
+        var exprTokens = [];
+        while (this.peek() !== "{" && this.peek() !== null) {
+            exprTokens.push(this.next());
+        }
+        this.compileMathExpression(exprTokens);
+        this.output.push("LabelF_" + id, "JmpF");
+        
+        this.parseStatement(); // True блок
+        
+        if (this.peek() === "else") {
+            this.next(); // "else"
+            this.output.push("LabelEnd_" + id, "Jmp", "LabelF_" + id + ":");
+            this.parseStatement(); // False блок
+            this.output.push("LabelEnd_" + id + ":");
+        } else {
+            this.output.push("LabelF_" + id + ":");
+        }
+    },
+
+    parseCycle: function() {
+        var id = ++this.opCounter;
+        this.loopStack.push(id);
+        this.next(); // "foreach"
+        this.next(); // "("
+        var varName = this.next(); // id
+        this.next(); // "in"
+        var start = this.next();
+        this.next(); // ":"
+        var end = this.next();
+        var step = "1";
+        if (this.peek() === ":") {
+            this.next();
+            step = this.next();
+        }
+        this.next(); // ")"
+        
+        this.output.push(start, varName, "=", "LabelStart_" + id + ":");
+        this.output.push(varName, end, "<=", "LabelEnd_" + id, "JmpOnFalse");
+        
+        this.parseStatement(); // Тело цикла
+        
+        this.output.push(varName, step, "+", varName, "=", "LabelStart_" + id, "Jmp", "LabelEnd_" + id + ":");
+        this.loopStack.pop();
+    },
+
+    parseSwitch: function() {
+        var id = ++this.opCounter;
+        this.next(); // "choice"
+        var exprTokens = [];
+        while (this.peek() !== "option" && this.peek() !== null) {
+            exprTokens.push(this.next());
+        }
+        this.compileMathExpression(exprTokens);
+        
+        var caseIdx = 0;
+        while (this.peek() === "option") {
+            caseIdx++;
+            this.next(); // "option"
+            var val = this.next();
+            this.next(); // ":"
+            
+            this.output.push("DUP", val, "==", "LabelCaseFalse_" + id + "_" + caseIdx, "JmpF");
+            this.parseStatement(); // Тело ветки option
+            this.output.push("LabelSwitchEnd_" + id, "Jmp", "LabelCaseFalse_" + id + "_" + caseIdx + ":");
+        }
+        
+        if (this.peek() === "nooption") {
+            this.next(); // "nooption"
+            this.parseStatement();
+        }
+        this.next(); // "end"
+        this.output.push("LabelSwitchEnd_" + id + ":", "DROP");
+    },
+
+    parseReturn: function() {
+        this.next(); // "return"
+        var exprTokens = [];
+        while (this.peek() !== ";" && this.peek() !== null) {
+            exprTokens.push(this.next());
+        }
+        this.next(); // ";"
+        this.compileMathExpression(exprTokens);
+        this.output.push("RETURN");
+    },
+
+    // Классическая сортировочная станция Дейкстры для любого выражения любой длины
+    compileMathExpression: function(tokens) {
+        var out = [];
+        var stack = [];
+        var priorities = { "||":1, "&&":2, "==":3, "!=":3, "<":4, "<=":4, ">":4, ">=":4, "+":5, "-":5, "*":6, "/":6 };
+        
+        for (var i = 0; i < tokens.length; i++) {
+            var token = tokens[i];
+            if (!isNaN(token) || token.match(/^[a-zA-Z][a-zA-Z0-9]*$/)) {
+                out.push(token);
+            } else if (token === "(") {
+                stack.push(token);
+            } else if (token === ")") {
+                while (stack.length > 0 && stack[stack.length - 1] !== "(") { out.push(stack.pop()); }
+                stack.pop();
+            } else if (priorities[token] !== undefined) {
+                while (stack.length > 0 && priorities[stack[stack.length - 1]] >= priorities[token]) {
+                    out.push(stack.pop());
+                }
+                stack.push(token);
+            }
+        }
+        while (stack.length > 0) { out.push(stack.pop()); }
+        for(var i=0; i<out.length; i++) this.output.push(out[i]);
+    }
+};
+
+// --- ВИРТУАЛЬНАЯ МАШИНА (ИНТЕРПРЕТАТОР И ГЕНЕРАТОР ТЕТРАД) ---
+function VirtualMachine() {
+    this.tetrads = [];       
+    this.dataStack = [];     
+    this.tempCounter = 0;
+    // Дефолтная инициализация памяти регистров, чтобы программа могла реально считать данные
+    this.memory = { "n0n": 5, "r0r": 2, "i0i": 0, "m0m": 10, "x1y": 0 }; 
+}
+
+VirtualMachine.prototype = {
+    nextTemp: function() { return "T" + (++this.tempCounter); },
+    addTetrad: function(op, op1, op2, res) {
+        this.tetrads.push({ op: op, op1: op1||"", op2: op2||"", res: res||"" });
+    },
+    printTetrads: function() {
+        var result = "";
+        for (var i = 0; i < this.tetrads.length; i++) {
+            var t = this.tetrads[i];
+            if (t.op === "LABEL") result += "\n" + t.res + ":\n";
+            else result += "  " + String(i).padEnd(3) + " <" + t.op.padEnd(11) + ">  <" + t.op1.toString().padEnd(16) + ">  <" + t.op2.toString().padEnd(16) + ">  <" + t.res.toString() + ">\n";
+        }
+        return result;
+    },
+    executePFR: function(pfrString) {
+        var tokens = pfrString.trim().split(/\s+/);
+        this.dataStack = []; this.tetrads = []; this.tempCounter = 0;
+
+        for (var i = 0; i < tokens.length; i++) {
+            var token = tokens[i];
+            if (token === "") continue;
+
+            if (["+", "-", "*", "/", "==", "!=", "<=", ">", "<", ">="].indexOf(token) !== -1) {
+                var op2 = this.dataStack.pop(); var op1 = this.dataStack.pop();
+                var tmp = this.nextTemp(); this.addTetrad(token, op1, op2, tmp); this.dataStack.push(tmp);
+            }
+            else if (token === "=") {
+                var target = this.dataStack.pop(); var val = this.dataStack.pop();       
+                this.addTetrad("=", val, "", target);
+            }
+            else if (token === "DUP") {
+                this.dataStack.push(this.dataStack[this.dataStack.length - 1]);
+            }
+            else if (token === "DROP") { this.dataStack.pop(); }
+            else if (token === "Jmp") { this.addTetrad("JMP", "", "", this.dataStack.pop()); }
+            else if (token === "JmpF" || token === "JmpOnFalse") {
+                var lbl = this.dataStack.pop(); var cond = this.dataStack.pop(); 
+                this.addTetrad("JMPF", cond, "", lbl);
+            }
+            else if (token.indexOf(":") !== -1) { this.addTetrad("LABEL", "", "", token.replace(":", "")); }
+            else if (token === "DECLARE_VAR") {
+                var type = this.dataStack.pop(); var vName = this.dataStack.pop();
+                this.addTetrad("DECLARE_VAR", vName, type, "");
+            }
+            else if (token === "DECLARE") {
+                var cnt = parseInt(this.dataStack.pop());
+                for (var k = 0; k < cnt * 2; k++) this.dataStack.pop();
+                var ret = this.dataStack.pop(); var funcTmp = "T_FUNC" + this.tempCounter;
+                this.addTetrad("FUNC_DECL", ret, cnt, funcTmp); this.dataStack.push(funcTmp);
+            }
+            else if (token === "RETURN") { this.addTetrad("RETURN", this.dataStack.pop(), "", ""); }
+            else { this.dataStack.push(token); }
+        }
+        return this.printTetrads();
+    },
+
+    interpret: function() {
+        var ip = 0; 
+        var labels = {};
+        for (var i = 0; i < this.tetrads.length; i++) {
+            if (this.tetrads[i].op === "LABEL") labels[this.tetrads[i].res] = i;
+        }
+
+        var steps = 0;
+        while (ip < this.tetrads.length && steps < 2000) {
+            steps++;
+            var t = this.tetrads[ip];
+            var getVal = function(operand, mem) {
+                if (operand === "") return 0;
+                if (!isNaN(operand)) return parseFloat(operand);
+                if (mem[operand] !== undefined) return mem[operand];
+                return 0;
+            };
+
+            switch (t.op) {
+                case "+": this.memory[t.res] = getVal(t.op1, this.memory) + getVal(t.op2, this.memory); break;
+                case "-": this.memory[t.res] = getVal(t.op1, this.memory) - getVal(t.op2, this.memory); break;
+                case "*": this.memory[t.res] = getVal(t.op1, this.memory) * getVal(t.op2, this.memory); break;
+                case "/": this.memory[t.res] = getVal(t.op1, this.memory) / getVal(t.op2, this.memory); break;
+                case "==": this.memory[t.res] = getVal(t.op1, this.memory) == getVal(t.op2, this.memory); break;
+                case "<=": this.memory[t.res] = getVal(t.op1, this.memory) <= getVal(t.op2, this.memory); break;
+                case ">":  this.memory[t.res] = getVal(t.op1, this.memory) > getVal(t.op2, this.memory); break;
+                case "=":  this.memory[t.res] = getVal(t.op1, this.memory); break;
+                case "JMP": if (labels[t.res] !== undefined) { ip = labels[t.res]; continue; } break;
+                case "JMPF": 
+                    if (!getVal(t.op1, this.memory) && labels[t.res] !== undefined) { ip = labels[t.res]; continue; } 
+                    break;
+                case "FUNC_DECL": this.memory[t.res] = "[Функция в памяти]"; break;
+                case "RETURN": this.memory["Финальный RETURN"] = getVal(t.op1, this.memory); break;
+            }
+            ip++;
+        }
+
+        var log = "=== ИТОГОВОЕ СОСТОЯНИЕ РЕГИСТРОВ ПАМЯТИ ВМ ===\n";
+        for (var key in this.memory) {
+            if (key.indexOf("T") !== 0 || key === "Финальный RETURN") {
+                log += "  Регистр [" + key.padEnd(16) + "] = " + this.memory[key] + "\n";
+            }
+        }
+        return log;
+    }
+};
+
+// --- ФУНКЦИИ УПРАВЛЕНИЯ СТРАНИЦЕЙ ---
+function runCompiler() {
+    var sourceCode = document.getElementById("inputCode").value;
+    var compiler = new UniversalCompiler();
+    compiler.tokenize(sourceCode);
+    currentOPZ = compiler.parseProgram();
+    
+    document.getElementById("opzOutput").innerText = currentOPZ;
+    document.getElementById("tetradsOutput").innerText = "ОПЗ построена динамически. Перейдите к Шагу 2.";
+    document.getElementById("interpOutput").innerText = "Ожидание запуска симуляции...";
+}
+
+function runVM() {
+    globalVM = new VirtualMachine();
+    var tetradsString = globalVM.executePFR(currentOPZ);
+    document.getElementById("tetradsOutput").innerText = tetradsString;
+    document.getElementById("interpOutput").innerText = "Тетрады успешно сгенерированы! Нажмите Кнопку 3.";
+}
+
+function runInterpreter() {
+    if (!globalVM || globalVM.tetrads.length === 0) {
+        document.getElementById("interpOutput").innerText = "Ошибка: Выполните Шаг 2!";
+        return;
+    }
+    var log = globalVM.interpret();
+    document.getElementById("interpOutput").innerText = log;
+}
+</script>
+
+</body>
+</html>

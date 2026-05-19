@@ -45,3 +45,6 @@ $(int (int n0n, int m0m){
 $(int (int n0n, int m0m){ 
     return r0r+m0m;
 }, x1y);
+
+// Вызов функции
+$(x1y(x2y,2), x1y);

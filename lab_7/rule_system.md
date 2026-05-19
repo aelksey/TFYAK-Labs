@@ -40,7 +40,6 @@ space [ \t\r\n] + {ignoreLastWord=true;}
 comment [/] [/] ( [] * ) [\r\n] {ignoreLastWord=true;}
 tailArgList ( "," ( { tempArgType = this.currentLexem[1]; } type ) ?  { tempArgId = this.currentLexem[1]; } { addFuncArg(tempArgType, tempArgId); }  id   ) *
 
-2 - есть запятая в DECL фунцкии
-
-
 Тетрады: <Код><Оп><Оп><Р>
+
+2 - есть запятая в DECL фунцкии

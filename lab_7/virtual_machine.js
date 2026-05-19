@@ -1,156 +1,186 @@
-function VirtualMachine() {
-    this.tetrads = [];       // Список сгенерированных тетрад
-    this.dataStack = [];     // Стек данных для вычислений
-    this.variables = {};     // Пространство памяти (переменные)
-    this.tempCounter = 0;    // Счётчик временных переменных T_i
+var pseudo = [];
+var operandStk = [];     // стек операндов (имена переменных / временных)
+var tempCounter = 0;     // счётчик для генерации временных переменных
+
+// Генерация нового имени временной переменной
+function newTemp() {
+    return "t" + (tempCounter++);
 }
 
-VirtualMachine.prototype = {
-    // Создание новой временной переменной для хранения промежуточного результата
-    nextTemp: function() {
-        this.tempCounter++;
-        return "T" + this.tempCounter;
-    },
+// Добавление тетрады в псевдокод
+function emitPseudo(code, op1, op2, res) {
+    pseudo.push({
+        code: code || "_",
+        op1: op1 || "_",
+        op2: op2 || "_",
+        res: res || "_"
+    });
+}
 
-    // Добавление тетрады в список
-    addTetrad: function(op, op1, op2, res) {
-        this.tetrads.push({
-            op: op,
-            op1: op1 !== undefined ? op1 : "",
-            op2: op2 !== undefined ? op2 : "",
-            res: res !== undefined ? res : ""
-        });
-    },
+// Очистка всех структур перед генерацией
+function clearPseudoCode() {
+    pseudo = [];
+    operandStk = [];
+    tempCounter = 0;
+}
 
-    // Печать тетрад в требуемом формате: <Код><Оп><Оп><Р>
-    printTetrads: function() {
-        var result = "=== СГЕНЕРИРОВАННЫЙ ПСЕВДОКОД (ТЕТРАДЫ) ===\n";
-        for (var i = 0; i < this.tetrads.length; i++) {
-            var t = this.tetrads[i];
-            result += i + ": <" + t.op + "> <" + t.op1 + "> <" + t.op2 + "> <" + t.res + ">\n";
+// Проверка типа слова ПФЗ (оставлена без изменений)
+function isPseudoBinaryOp(op) {
+    return op == "||" || op == "&&" || op == "!=" || op == "==" ||
+           op == "<=" || op == "<" || op == ">=" || op == ">" ||
+           op == "-" || op == "+" || op == "*" || op == "/";
+}
+function isPseudoUnaryOp(op) {
+    return op == "~" || op == "!" || op == "--" || op == "++" || op == "u-" || op == "u+";
+}
+function getPseudoType(word) {
+    if (isPseudoBinaryOp(word)) return 10;
+    if (isPseudoUnaryOp(word)) return 11;
+    if (word == "=") return 20;
+    if (word == "Jmp") return 30;
+    if (word == "JmpF") return 31;
+    if (isPseudoLabelDef(word)) return 40;
+    if (word == "cast") return 50;
+    if (isPseudoCall(word)) return 60;
+    return 0;
+}
+function isPseudoLabelDef(word) {
+    return typeof word == "string" && word.length > 0 && word[word.length - 1] == ":";
+}
+function isPseudoCall(word) {
+    return typeof word == "string" && /^call[0-9]+$/.test(word);
+}
+
+// Основное преобразование ПФЗ в тетрады
+function toPseudoCode() {
+    clearPseudoCode();
+    for (var i = 0; i < tracer.history.length; i++) {
+        var word = tracer.history[i];
+        var type = getPseudoType(word);
+
+        if (type == 0) {                // операнд (переменная / константа)
+            operandStk.push(word);
+            continue;
         }
-        return result;
-    },
-
-    // Главный метод: Исполнение / Интерпретация строки ОПЗ
-    execute: function(pfrString) {
-        // Разбиваем строку ОПЗ на отдельные токены по пробелам
-        var tokens = pfrString.trim().split(/\s+/);
-        this.dataStack = [];
-        this.tetrads = [];
-        this.tempCounter = 0;
-
-        var i = 0;
-        while (i < tokens.length) {
-            var token = tokens[i];
-            if (token === "") {
-                i++;
-                continue;
-            }
-
-            // --- 1. Бинарные математические и логические операции ---
-            if (token === "+" || token === "-" || token === "*" || token === "/" || 
-                token === "==" || token === "!=" || token === "<=" || token === ">" || token === "<" || token === ">=") {
-                
-                var operand2 = this.dataStack.pop();
-                var operand1 = this.dataStack.pop();
-                var tempRes = this.nextTemp();
-                
-                this.addTetrad(token, operand1, operand2, tempRes);
-                this.dataStack.push(tempRes); // Результат кладем обратно в стек
-            }
-            
-            // --- 2. Оператор присваивания (=) ---
-            else if (token === "=") {
-                var targetVar = this.dataStack.pop(); // Имя переменной (куда присваиваем)
-                var val = this.dataStack.pop();       // Значение выражения
-                
-                this.addTetrad("=", val, "", targetVar);
-            }
-            
-            // --- 3. Команды управления стеком (DUP и DROP для switch/choice) ---
-            else if (token === "DUP") {
-                var top = this.dataStack[this.dataStack.length - 1];
-                this.dataStack.push(top);
-            }
-            else if (token === "DROP") {
-                this.dataStack.pop();
-            }
-            
-            // --- 4. Безусловный переход (Jmp) ---
-            else if (token === "Jmp") {
-                var label = this.dataStack.pop();
-                this.addTetrad("JMP", "", "", label);
-            }
-            
-            // --- 5. Условные переходы (JmpF / JmpOnFalse) ---
-            else if (token === "JmpF" || token === "JmpOnFalse") {
-                var label = this.dataStack.pop();    // Куда прыгать
-                var condition = this.dataStack.pop(); // Переменная с условием (T_i)
-                
-                this.addTetrad("JMPF", condition, "", label);
-            }
-            
-            // --- 6. Метки переходов (вида Label: ) ---
-            else if (token.indexOf(":") !== -1) {
-                var cleanLabel = token.replace(":", "");
-                this.addTetrad("LABEL", "", "", cleanLabel);
-            }
-            
-            // --- 7. Декларация переменных (DECLARE_VAR) ---
-            else if (token === "DECLARE_VAR") {
-                var type = this.dataStack.pop();
-                var varName = this.dataStack.pop();
-                
-                this.addTetrad("DECLARE_VAR", varName, type, "");
-                this.variables[varName] = { type: type, value: null };
-            }
-            
-            // --- 8. Декларация сигнатуры функций (DECLARE) ---
-            else if (token === "DECLARE") {
-                var argCount = parseInt(this.dataStack.pop());
-                var args = [];
-                for (var k = 0; k < argCount; k++) {
-                    var argId = this.dataStack.pop();
-                    var argType = this.dataStack.pop();
-                    args.unshift({ type: argType, id: argId });
-                }
-                var retType = this.dataStack.pop();
-                
-                // В тетрадах фиксируем объявление функции
-                this.addTetrad("FUNC_DECLARE", retType, argCount, "ARGS:" + JSON.stringify(args));
-            }
-            
-            // --- 9. Вызов функции (CALL) ---
-            else if (token === "CALL") {
-                var funcName = this.dataStack.pop();
-                var callArgCount = parseInt(this.dataStack.pop());
-                
-                // Снимаем аргументы вызова со стека
-                var callArgs = [];
-                for (var k = 0; k < callArgCount; k++) {
-                    callArgs.unshift(this.dataStack.pop());
-                }
-                
-                var callTempRes = this.nextTemp();
-                this.addTetrad("CALL", funcName, callArgs.join(","), callTempRes);
-                this.dataStack.push(callTempRes); // Функция возвращает значение в стек
-            }
-            
-            // --- 10. Возврат из функции (RETURN) ---
-            else if (token === "RETURN") {
-                var retVal = this.dataStack.pop();
-                this.addTetrad("RETURN", retVal, "", "");
-            }
-            
-            // --- 11. Обычные операнды (числа, имена переменных, названия меток) ---
-            else {
-                this.dataStack.push(token);
-            }
-
-            i++;
+        if (type == 11) {               // унарная операция
+            emitUnaryExprPseudo(word);
+            continue;
         }
-
-        return this.printTetrads();
+        if (type == 10) {               // бинарная операция
+            emitBinaryExprPseudo(word);
+            continue;
+        }
+        if (type == 20) {               // присваивание
+            emitAssignPseudo();
+            continue;
+        }
+        if (type == 30) {               // безусловный переход
+            emitJumpPseudo();
+            continue;
+        }
+        if (type == 31) {               // условный переход
+            emitJumpFalsePseudo();
+            continue;
+        }
+        if (type == 40) {               // определение метки
+            emitLabelPseudo(word);
+            continue;
+        }
+        if (type == 50) {               // приведение типа
+            emitCastPseudo();
+            continue;
+        }
+        if (type == 60) {               // вызов функции
+            emitCallPseudo(word);
+            continue;
+        }
     }
-};
+    // метки не преобразуются в смещения – остаются символическими
+}
+
+// Бинарная операция: left op right → temp
+function emitBinaryExprPseudo(op) {
+    var right = operandStk.pop();
+    var left = operandStk.pop();
+    var result = newTemp();
+    emitPseudo(op, left, right, result);
+    operandStk.push(result);
+}
+
+// Унарная операция: op value → temp
+function emitUnaryExprPseudo(op) {
+    var value = operandStk.pop();
+    var result = newTemp();
+    emitPseudo(op, value, "_", result);
+    operandStk.push(result);
+}
+
+// Присваивание: target = value → value (результат присваивания)
+function emitAssignPseudo() {
+    var target = operandStk.pop();
+    var value = operandStk.pop();
+    emitPseudo("=", value, "_", target);
+    // в стек операндов кладём значение (как результат присваивания)
+    operandStk.push(value);
+}
+
+// Безусловный переход: Jmp label
+function emitJumpPseudo() {
+    var label = operandStk.pop();
+    emitPseudo("Jmp", "_", label, "_");
+}
+
+// Условный переход: JmpF condition label
+function emitJumpFalsePseudo() {
+    var label = operandStk.pop();
+    var condition = operandStk.pop();
+    emitPseudo("JmpF", condition, label, "_");
+}
+
+// Определение метки (специальная псевдо-операция, не имеющая результата)
+function emitLabelPseudo(labelWord) {
+    var label = labelWord.substring(0, labelWord.length - 1);
+    emitPseudo("LABEL", label, "_", "_");
+}
+
+// Приведение типа: cast value targetType → temp
+function emitCastPseudo() {
+    var targetType = operandStk.pop();
+    var value = operandStk.pop();
+    var result = newTemp();
+    emitPseudo("cast", value, targetType, result);
+    operandStk.push(result);
+}
+
+// Вызов функции: CALL func argc → result (если функция возвращает значение)
+function emitCallPseudo(callWord) {
+    var argc = parseInt(callWord.substring(4), 10);
+    var funcName = operandStk.pop();
+    var args = [];
+    for (var i = 0; i < argc; i++) {
+        args.unshift(operandStk.pop());
+    }
+    // Генерация инструкций для передачи аргументов (можно через param)
+    for (var j = 0; j < args.length; j++) {
+        emitPseudo("param", args[j], "_", "_");
+    }
+    var result = newTemp();
+    emitPseudo("call", funcName, String(argc), result);
+    operandStk.push(result);
+}
+
+// Формирование строкового представления тетрад
+function pseudoCodeToString() {
+    var r = "\n\nПсевдокод (тетрады: код op1 op2 результат):\n";
+    for (var i = 0; i < pseudo.length; i++) {
+        var p = pseudo[i];
+        r += p.code + " " + p.op1 + " " + p.op2 + " " + p.res + "\n";
+    }
+    return r;
+}
+
+// Функция для вызова из основного кода транслятора
+function printPseudoCode() {
+    toPseudoCode();
+    toPFR(pseudoCodeToString());
+}
