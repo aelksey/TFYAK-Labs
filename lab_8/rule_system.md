@@ -1,4 +1,4 @@
-program {operatorCnt=0;} programItem * { printPseudoCode(); printSemanticErrors(); }
+program {operatorCnt=0;} programItem * { printPseudoCode(); run(); printSemanticErrors();  }
 programItem operator
 operator assignment | condition | cycle | switch | returnValue | typization
 assignment "$" "(" ( expr | ( { startFuncDecl(this.currentLexem[1]); } type "(" argList ")" { emitFuncDecl(); } block ) ) { flushAllOp(); } "," { savedIdName = this.currentLexem[1]; } { toPFR(savedIdName); } id { toPFR("="); } ")" ";"
@@ -40,6 +40,4 @@ space [ \t\r\n] + {ignoreLastWord=true;}
 comment [/] [/] ( [] * ) [\r\n] {ignoreLastWord=true;}
 tailArgList ( "," ( { tempArgType = this.currentLexem[1]; } type ) ?  { tempArgId = this.currentLexem[1]; } { addFuncArg(tempArgType, tempArgId); }  id   ) *
 
-Тетрады: <Код><Оп><Оп><Р>
 
-2 - есть запятая в DECL фунцкии

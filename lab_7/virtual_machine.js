@@ -39,6 +39,7 @@ function getPseudoType(word) {
     if (word == "=") return 20;
     if (word == "Jmp") return 30;
     if (word == "JmpF") return 31;
+    if (word == "DECLARE") return 70;
     if (isPseudoLabelDef(word)) return 40;
     if (word == "cast") return 50;
     if (isPseudoCall(word)) return 60;
@@ -92,6 +93,10 @@ function toPseudoCode() {
         }
         if (type == 60) {               // вызов функции
             emitCallPseudo(word);
+            continue;
+        }
+        if (type == 70) {
+            emitDeclarePseudo();
             continue;
         }
     }
