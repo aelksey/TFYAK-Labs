@@ -1,7 +1,7 @@
 program {operatorCnt=0;} programItem * { printPseudoCode(); run(); printSemanticErrors(); }
 programItem operator
 operator assignment | condition | cycle | switch | returnValue | typization
-assignment "$" "(" ( expr | ( { startFuncDecl(this.currentLexem[1]); } type "(" argList ")" { emitFuncDecl(); } block ) ) { flushAllOp(); } "," { savedIdName = this.currentLexem[1]; } { toPFR(savedIdName); } id { toPFR("="); } ")" ";"
+assignment "$" "(" ( expr | ( { startFuncDecl(this.currentLexem[1]); } type "(" argList ")" { emitFuncDecl(); } block  ) ) { flushAllOp(); } "," { savedIdName = this.currentLexem[1]; } { toPFR(savedIdName); } id { toPFR("="); } ")" ";"
 condition {begCond();} "when" expr {endCondExpr();} blockOrOperator {begCondEx();} condTail {endCond();}
 cycle {begFor();} "foreach" "(" {saveForVar(this);} id "in" {putCurrLex(this);} constInteger {emitForInit();} ":" {begForCond();} {putCurrLex(this);} { saveCaseConst(this); } constInteger {emitForCond();} ( ":" {saveForStep(this);} constInteger ) ? ")" blockOrOperator {endFor();}
 switch "choice" { begSwitch(); } expr { emitSwitchExpr(); } ( "option"  { startOption(); } { toPFR(this.currentLexem[1]); }  constInteger  { finishOption(); } ":" switchBody { endOption(); } ) + switchTail "end" { endSwitch(); }
@@ -21,7 +21,7 @@ exprTail ( {pushBinOp(this.currentLexem[1]);} ( BinaryOperator | minus ) expr {f
 block "{" statementList "}"
 statement operator | cycleBreak
 switchBody ( blockOrOperator * ( "fin" ";" ) ? )
-argList ( ( type { tempArgType = this.currentLexem[1]; } ) ? id { tempArgId = this.currentLexem[1]; } { addFuncArg(tempArgType, tempArgId); } tailArgList ) ?
+argList ( ( { tempArgType = this.currentLexem[1]; } type ) ? { tempArgId = this.currentLexem[1]; } id { addFuncArg(tempArgType, tempArgId); } tailArgList ) ?
 const constDecimal | constThree | constSeven | constChar | constString
 statementList ( statement statementList ) ?
 cycleBreak ( "leave" { emitLeave(); } ";" )
@@ -38,4 +38,14 @@ constString ["] ( [] | ( [\\] ["] ) | ( [\\] [u] [0-9a-fA-F] [0-9a-zA-F] ) ) * [
 BinaryOperator [+*/] | ( [&] [&] ) | ( [|] [|] ) | ( [-+*/!=] [=] ) | ( [<>] [=] ? )
 space [ \t\r\n] + {ignoreLastWord=true;}
 comment [/] [/] ( [] * ) [\r\n] {ignoreLastWord=true;}
+
+
+Issues:
+
+Не работает обьявление и вызов функций (они )
+
+Не работает приведение типов
+
+Не работает унарный минус ПФЗ робит Псевдокод генерируется неправильно, сначала в отчёте вставляешь правильные примеры в конце скетчи ванс
+
 
