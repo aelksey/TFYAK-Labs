@@ -1,12 +1,12 @@
-program {operatorCnt=0;} programItem * { printPseudoCode(); run(); printSemanticErrors(); }
+program { operatorCnt=0;} programItem * { printPseudoCode(); run(); printSemanticErrors(); }
 programItem operator
 operator assignment | condition | cycle | switch | returnValue | typization
-assignment "$" "(" ( expr | ( { startFuncDecl(this.currentLexem[1]); } type "(" argList ")" { emitFuncDecl(); } block ) ) { flushAllOp(); } "," { savedIdName = this.currentLexem[1]; } { toPFR(savedIdName); } id { toPFR("="); } ")" ";"
+assignment "$" "(" ( expr | ( { startFuncDecl(this.currentLexem[1]); } type "(" argList ")" {emitPendingFunc();} block { endFuncDecl();} ) ) { flushAllOp(); } "," { savedIdName = this.currentLexem[1]; } {emitFuncDecl();} id ")" ";"
 condition {begCond();} "when" expr {endCondExpr();} blockOrOperator {begCondEx();} condTail {endCond();}
 cycle {begFor();} "foreach" "(" {saveForVar(this);} id "in" {putCurrLex(this);} constInteger {emitForInit();} ":" {begForCond();} {putCurrLex(this);} { saveCaseConst(this); } constInteger {emitForCond();} ( ":" {saveForStep(this);} constInteger ) ? ")" blockOrOperator {endFor();}
-switch "choice" { begSwitch(); } expr { emitSwitchExpr(); } ( "option"  { startOption(); } { toPFR(this.currentLexem[1]); }  constInteger  { finishOption(); } ":" switchBody { endOption(); } ) + switchTail "end" { endSwitch(); }
+switch "choice" { begSwitch(); } expr { emitSwitchExpr(); } ( "option" { startOption(); } { toPFR(this.currentLexem[1]); } constInteger { finishOption(); } ":" switchBody { endOption(); } ) + switchTail "end" { endSwitch(); }
 returnValue {flushAllOp();} "return" type ? expr { toPFR("RETURN"); } ";"
-typization "@" { pushTypeCast(this.currentLexem[1]); } type { saveTypizationId(this.currentLexem[1]); toPFR(typizationId); toPFR(typizationType); toPFR("DECLARE_VAR"); } id ";"
+typization "@" {typizationType = this.currentLexem[1]; typeName = typizationType;} type { varName = this.currentLexem[1]; if (typeName === "int" || typeName === "float") toPFRs("0", varName, "="); else if (typeName === "string") toPFRs('""', varName, "="); else if (typeName === "char") toPFRs("'\\0'", varName, "="); toPFR(varName); toPFR(typeName); toPFR("cast"); } id ";"
 expr ( {pushUnOp(this.currentLexem[1]);} ( UnaryOperator | minus ) {flushUnOp();} ) ? exprHead exprTail
 blockOrOperator block | statement
 condTail "else" blockOrOperator
@@ -21,11 +21,11 @@ exprTail ( {pushBinOp(this.currentLexem[1]);} ( BinaryOperator | minus ) expr {f
 block "{" statementList "}"
 statement operator | cycleBreak
 switchBody ( blockOrOperator * ( "fin" ";" ) ? )
-argList ( ( type { tempArgType = this.currentLexem[1]; } ) ? id { tempArgId = this.currentLexem[1]; } { addFuncArg(tempArgType, tempArgId); } tailArgList ) ?
+argList ( ( { tempArgType = this.currentLexem[1]; } type ) ? { tempArgId = this.currentLexem[1]; } id { addFuncArg(tempArgType, tempArgId); } tailArgList ) ?
 const constDecimal | constThree | constSeven | constChar | constString
 statementList ( statement statementList ) ?
 cycleBreak ( "leave" { emitLeave(); } ";" )
-tailArgList ( "," ( { tempArgType = this.currentLexem[1]; } type ) ? { tempArgId = this.currentLexem[1]; } { addFuncArg(tempArgType, tempArgId); } id ) *
+tailArgList ( "," ( { tempArgType = this.currentLexem[1]; } type ) ? { tempArgId = this.currentLexem[1]; } id { addFuncArg(tempArgType, tempArgId); } ) *
 FactArgList { pushArg(); } expr ( "," { pushArg(); } expr ) *
 id [a-zA-Z] [0-9] {,3} [a-zA-Z]
 constDecimal [0-9] + ( [.] [0-9] * ) ?
@@ -38,4 +38,3 @@ constString ["] ( [] | ( [\\] ["] ) | ( [\\] [u] [0-9a-fA-F] [0-9a-zA-F] ) ) * [
 BinaryOperator [+*/] | ( [&] [&] ) | ( [|] [|] ) | ( [-+*/!=] [=] ) | ( [<>] [=] ? )
 space [ \t\r\n] + {ignoreLastWord=true;}
 comment [/] [/] ( [] * ) [\r\n] {ignoreLastWord=true;}
-

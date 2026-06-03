@@ -16,6 +16,16 @@ var currentFunction = null;
 var objectTable = [];
 var nextObjectId = 0;
 
+// Для объявления функций
+var currentFuncName = "";
+var currentFuncArgs = [];
+var currentFuncRetType = "";
+var currentArgList = [];      // временный список аргументов при разборе
+var currentType = "";         // текущий тип (для typization и functionDecl)
+var tempArgType = "";
+var tempArgId = "";
+var globalArgCount = 0;       // вспомогательный счетчик аргументов
+
 function addObject(name, type, value, argCount, argNames) {
     var obj = {
         id: nextObjectId++,
@@ -32,13 +42,11 @@ function addObject(name, type, value, argCount, argNames) {
 function updateObjectValue(name, value, type) {
     for (var i = 0; i < objectTable.length; i++) {
         if (objectTable[i].name === name && objectTable[i].type.startsWith("variable")) {
-            // Обновляем существующую запись
             objectTable[i].value = value;
             objectTable[i].type = "variable: " + type;
             return;
         }
     }
-    // Не найдена – добавляем новую
     addObject(name, "variable: " + type, value, 0, []);
 }
 
@@ -67,6 +75,15 @@ function clearVirtualMachine() {
     currentFunction = null;
     objectTable = [];
     nextObjectId = 0;
+    // Очистка глобальных переменных для объявления функций
+    currentFuncName = "";
+    currentFuncArgs = [];
+    currentFuncRetType = "";
+    currentArgList = [];
+    currentType = "";
+    tempArgType = "";
+    tempArgId = "";
+    globalArgCount = 0;
 }
 
 function buildVmLabels() {
@@ -90,13 +107,7 @@ function buildVmFunctions() {
             var funcName = cmd.op1;
             var paramCount = parseInt(cmd.op2, 10);
             if (isNaN(paramCount)) paramCount = 0;
-            var paramNames = [];
-            if (typeof cmd.res == "string" && cmd.res != "_") {
-                paramNames = cmd.res.split(",");
-                for (var k = 0; k < paramNames.length; k++) {
-                    paramNames[k] = paramNames[k].trim();
-                }
-            }
+            var paramNames = (typeof cmd.res === "string") ? cmd.res.split(",") : [];
             if (vmLabels.hasOwnProperty(funcName)) {
                 vmFunctions[funcName] = {
                     startIndex: vmLabels[funcName],
@@ -138,31 +149,25 @@ function addSemanticError(msg) { semanticErrors.push(msg); }
 function parseLiteral(str) {
     if (typeof str !== "string") return null;
     if (str === "") return null;
-    // Строковый литерал в двойных кавычках
     if (str.startsWith('"') && str.endsWith('"')) {
         return { value: str.slice(1, -1), type: "string" };
     }
-    // Символьный литерал в одинарных кавычках
     if (str.startsWith("'") && str.endsWith("'")) {
         return { value: str.slice(1, -1), type: "char" };
     }
-    // Троичное число (цифры 0-2, суффикс x3)
     var match3 = str.match(/^([0-2]+)x3$/);
     if (match3) {
         var val3 = parseInt(match3[1], 3);
         if (!isNaN(val3)) return { value: val3, type: "int" };
     }
-    // Семеричное число (цифры 0-6, суффикс x7)
     var match7 = str.match(/^([0-6]+)x7$/);
     if (match7) {
         var val7 = parseInt(match7[1], 7);
         if (!isNaN(val7)) return { value: val7, type: "int" };
     }
-    // Десятичное целое
     if (/^-?\d+$/.test(str)) {
         return { value: parseInt(str, 10), type: "int" };
     }
-    // Десятичное с плавающей точкой
     if (/^-?\d+\.\d+$/.test(str)) {
         return { value: parseFloat(str), type: "float" };
     }
@@ -171,16 +176,21 @@ function parseLiteral(str) {
 
 function getValue(name) {
     if (name === undefined || name === "_") return undefined;
-    // Литерал
     var parsed = parseLiteral(name);
     if (parsed !== null) return parsed.value;
-    // Переменная
     if (semanticMemory.hasOwnProperty(name)) {
         var entry = semanticMemory[name];
-        if (entry && typeof entry === "object") return entry.value;
-        else return entry; // для совместимости
+        if (entry && typeof entry === "object") {
+            if (entry.value === undefined) {
+                addSemanticError("Использование неинициализированной переменной: " + name);
+                return undefined;
+            }
+            return entry.value;
+        } else {
+            return entry;
+        }
     }
-    addSemanticError("Использование неинициализированной переменной: " + name);
+    addSemanticError("Неизвестная переменная: " + name);
     return undefined;
 }
 
@@ -190,7 +200,6 @@ function setValue(name, value) {
         addSemanticError("Попытка присвоить неопределённое значение переменной " + name);
         return;
     }
-    // Определяем тип
     var type = "unknown";
     if (typeof value === "number") {
         type = (value % 1 === 0) ? "int" : "float";
@@ -207,17 +216,9 @@ function isNumericValue(val) { return typeof val === "number" && !isNaN(val); }
 
 function executePseudoCommand(cmd, ip) {
     var code = cmd.code, op1 = cmd.op1, op2 = cmd.op2, res = cmd.res;
-    
-    // Отладочный вывод каждой команды
-    debugLog("Выполняем [" + ip + "]: " + code + " " + op1 + " " + op2 + " → " + res);
-    
-    if (code === "LABEL") {
-        debugLog("  → LABEL, пропускаем");
-        return ip + 1;
-    }
+    if (code === "LABEL") return ip + 1;
     if (code === "=") {
         var val = getValue(op1);
-        debugLog("  → Присваивание: " + res + " = " + op1 + " (" + val + ")");
         if (val !== undefined) setValue(res, val);
         return ip + 1;
     }
@@ -225,11 +226,7 @@ function executePseudoCommand(cmd, ip) {
         code === ">" || code === "<" || code === ">=" || code === "<=" ||
         code === "==" || code === "!=" || code === "&&" || code === "||") {
         var left = getValue(op1), right = getValue(op2);
-        debugLog("  → Бинарная операция: " + op1 + "=" + left + ", " + op2 + "=" + right);
-        if (left === undefined || right === undefined) {
-            debugLog("  → ОШИБКА: операнды не определены!");
-            return ip + 1;
-        }
+        if (left === undefined || right === undefined) return ip + 1;
         var result;
         if (code === "+") {
             if (isNumericValue(left) && isNumericValue(right)) result = left + right;
@@ -253,13 +250,11 @@ function executePseudoCommand(cmd, ip) {
         else if (code === "!=") result = (left != right) ? 1 : 0;
         else if (code === "&&") result = (left != 0 && right != 0) ? 1 : 0;
         else if (code === "||") result = (left != 0 || right != 0) ? 1 : 0;
-        debugLog("  → Результат: " + result + " → " + res);
         if (result !== undefined && res !== "_") setValue(res, result);
         return ip + 1;
     }
     if (code === "~" || code === "!" || code === "--" || code === "++" || code === "u-" || code === "u+") {
         var valOp = getValue(op1);
-        debugLog("  → Унарная операция: " + code + " " + op1 + "=" + valOp);
         if (valOp === undefined) return ip + 1;
         var unaryRes;
         if (code === "~") unaryRes = ~valOp;
@@ -268,20 +263,17 @@ function executePseudoCommand(cmd, ip) {
         else if (code === "++") unaryRes = valOp + 1;
         else if (code === "u-") unaryRes = -valOp;
         else if (code === "u+") unaryRes = +valOp;
-        debugLog("  → Результат: " + unaryRes + " → " + res);
         if (unaryRes !== undefined && res !== "_") setValue(res, unaryRes);
         return ip + 1;
     }
     if (code === "Jmp") {
         var targetLabel = op2;
-        debugLog("  → JMP: переход на метку " + targetLabel);
         if (vmLabels.hasOwnProperty(targetLabel)) return vmLabels[targetLabel];
         addSemanticError("Неизвестная метка для Jmp: " + targetLabel);
         return ip + 1;
     }
     if (code === "JmpF") {
         var condVal = getValue(op1), falseLabel = op2;
-        debugLog("  → JMPF: условие=" + condVal + ", метка=" + falseLabel);
         if (condVal === undefined) return ip + 1;
         if (condVal == 0) {
             if (vmLabels.hasOwnProperty(falseLabel)) return vmLabels[falseLabel];
@@ -292,186 +284,94 @@ function executePseudoCommand(cmd, ip) {
     }
     if (code === "cast") {
         var srcVal = getValue(op1), targetType = op2, casted;
-        debugLog("  → CAST: " + op1 + "=" + srcVal + " → " + targetType);
         if (srcVal === undefined) return ip + 1;
         if (targetType === "int") casted = Math.floor(Number(srcVal));
         else if (targetType === "float") casted = Number(srcVal);
         else if (targetType === "string") casted = String(srcVal);
         else if (targetType === "char") casted = String.fromCharCode(Number(srcVal));
         else { addSemanticError("Неизвестный тип приведения: " + targetType); casted = srcVal; }
-        debugLog("  → Результат: " + casted + " → " + res);
         if (res !== "_") setValue(res, casted);
         return ip + 1;
     }
     if (code === "param") {
         var argVal = getValue(op1);
-        debugLog("  → PARAM: кладём " + op1 + " = " + argVal + " в стек аргументов");
         if (argVal !== undefined) vmPendingArgs.push(argVal);
         return ip + 1;
     }
     if (code === "call") {
         var funcName = op1, argc = parseInt(op2, 10);
-        debugLog("  → CALL: вызов " + funcName + " с " + argc + " аргументами");
         if (isNaN(argc)) argc = 0;
         if (vmPendingArgs.length < argc) {
-            debugLog("  → CALL: ОШИБКА - недостаточно аргументов!");
             addSemanticError("Недостаточно аргументов для вызова " + funcName);
             if (res !== "_") setValue(res, 0);
             return ip + 1;
         }
         var args = vmPendingArgs.splice(0, argc);
-        debugLog("  → CALL: аргументы = [" + args.join(",") + "]");
-        
         if (!vmFunctions.hasOwnProperty(funcName)) {
-            debugLog("  → CALL: ОШИБКА - функция " + funcName + " не определена!");
             addSemanticError("Вызов неопределённой функции: " + funcName);
             if (res !== "_") setValue(res, 0);
             return ip + 1;
         }
         var funcInfo = vmFunctions[funcName];
-        debugLog("  → CALL: paramNames = [" + (funcInfo.paramNames ? funcInfo.paramNames.join(",") : "нет") + "]");
-        
         vmCallStack.push({
             returnIp: ip + 1,
             functionName: currentFunction ? currentFunction.name : null,
-            savedMemory: JSON.parse(JSON.stringify(semanticMemory)),
-            resultVar: res
+            savedMemory: JSON.parse(JSON.stringify(semanticMemory))
         });
-        
         semanticMemory = {};
         for (var i = 0; i < args.length; i++) {
-            debugLog("  → CALL: p" + i + " = " + args[i]);
             setValue("p" + i, args[i]);
-            if (funcInfo.paramNames && funcInfo.paramNames[i]) {
-                debugLog("  → CALL: " + funcInfo.paramNames[i] + " = " + args[i]);
-                setValue(funcInfo.paramNames[i], args[i]);
-            }
+            if (funcInfo.paramNames && funcInfo.paramNames[i]) setValue(funcInfo.paramNames[i], args[i]);
         }
         currentFunction = { name: funcName, startIndex: funcInfo.startIndex };
-        debugLog("  → CALL: переход на IP=" + funcInfo.startIndex);
         return funcInfo.startIndex;
     }
     if (code === "return") {
+        if (vmCallStack.length === 0) return ip + 1;
         var retVal = getValue(op1);
-        debugLog("  → RETURN: значение " + op1 + " = " + retVal);
-        if (vmCallStack.length === 0) {
-            debugLog("  → RETURN: стек пуст, завершаем");
-            return ip + 1;
-        }
+        if (retVal === undefined) retVal = 0;
         var caller = vmCallStack.pop();
-        debugLog("  → RETURN: возврат в IP=" + caller.returnIp + ", результат в " + caller.resultVar);
         semanticMemory = caller.savedMemory;
-        if (caller.resultVar && caller.resultVar !== "_") {
-            debugLog("  → RETURN: устанавливаем " + caller.resultVar + " = " + retVal);
-            setValue(caller.resultVar, retVal);
-        }
+        setValue("__return", retVal);
         currentFunction = caller.functionName ? { name: caller.functionName } : null;
         return caller.returnIp;
     }
-    if (code === "DECLARE") {
-        debugLog("  → DECLARE, пропускаем");
-        return ip + 1;
-    }
-    
-    debugLog("  → Неизвестная команда: " + code);
+    if (code === "DECLARE") return ip + 1;
     addSemanticError("Неизвестная команда: " + code);
     return ip + 1;
-}
-
-function debugLog(msg) {
-    //tracer.put("[DEBUG] " + msg);
 }
 
 function run() {
     clearVirtualMachine();
     buildVmLabels();
     buildVmFunctions();
-    
-    // Запоминаем IP всех функций, чтобы не обрабатывать их повторно
-    var functionStartIPs = {};
-    for (var i = 0; i < pseudo.length; i++) {
-        if (pseudo[i].code === "LABEL") {
-            var labelName = pseudo[i].op1;
-            if (vmFunctions.hasOwnProperty(labelName)) {
-                functionStartIPs[labelName] = i;
-            }
+
+    if (Object.keys(vmFunctions).length === 0) {
+        currentFunction = null;
+        currentIp = 0;
+        var steps = 0, maxSteps = 100000;
+        while (currentIp < pseudo.length && !hasSemanticErrors()) {
+            if (steps > maxSteps) { addSemanticError("Превышено максимальное количество шагов выполнения (возможно, бесконечный цикл)."); break; }
+            var cmd = pseudo[currentIp];
+            if (!cmd) break;
+            currentIp = executePseudoCommand(cmd, currentIp);
+            steps++;
         }
+        return !hasSemanticErrors();
     }
-    
-    // Находим конец каждой функции
-    var functionEndIPs = {};
-    for (var funcName in functionStartIPs) {
-        var startIP = functionStartIPs[funcName];
-        var endIP = startIP + 1;
-        for (var j = startIP + 1; j < pseudo.length; j++) {
-            if (pseudo[j].code === "DECLARE" || pseudo[j].code === "LABEL") {
-                endIP = j;
-                break;
-            }
-            if (pseudo[j].code === "return") {
-                endIP = j + 1;
-                break;
-            }
-        }
-        functionEndIPs[funcName] = endIP;
-    }
-    
-    currentIp = 0;
+
+    var firstFuncName = Object.keys(vmFunctions)[0];
+    currentFunction = { name: firstFuncName, startIndex: vmFunctions[firstFuncName].startIndex };
+    currentIp = currentFunction.startIndex;
     var steps = 0, maxSteps = 100000;
-    var inFunction = false;  // Флаг: находимся ли мы внутри выполнения функции
-    
     while (currentIp < pseudo.length && !hasSemanticErrors()) {
-        if (steps > maxSteps) {
-            addSemanticError("Превышено максимальное количество шагов (Возможно бесконечный цикл)");
-            break;
-        }
-        
+        if (steps > maxSteps) { addSemanticError("Превышено максимальное количество шагов выполнения (возможно, бесконечный цикл)."); break; }
+        if (currentFunction && currentIp >= pseudo.length && vmCallStack.length === 0) break;
         var cmd = pseudo[currentIp];
         if (!cmd) break;
-        
-        // ОТЛАДКА: показываем текущую команду
-        debugLog("Шаг " + steps + ", IP=" + currentIp + ", cmd=" + cmd.code + ", inFunction=" + inFunction);
-        
-        // Пропускаем DECLARE
-        if (cmd.code === "DECLARE") {
-            debugLog("  Пропускаем DECLARE");
-            currentIp++;
-            steps++;
-            continue;
-        }
-        
-        // Если это LABEL и мы НЕ внутри функции – пропускаем тело функции
-        if (cmd.code === "LABEL" && !inFunction) {
-            var labelName = cmd.op1;
-            if (functionStartIPs.hasOwnProperty(labelName)) {
-                var newIp = functionEndIPs[labelName];
-                debugLog("  Пропускаем функцию " + labelName + " с IP=" + currentIp + " на IP=" + newIp);
-                currentIp = newIp;
-                steps++;
-                continue;
-            }
-        }
-        
-        // Выполняем команду
-        var oldIp = currentIp;
         currentIp = executePseudoCommand(cmd, currentIp);
-        
-        // Проверяем, вошли ли мы в функцию (call изменил currentFunction)
-        if (cmd.code === "call") {
-            inFunction = true;
-            debugLog("  Вход в функцию, inFunction=true");
-        }
-        
-        // Проверяем, вышли ли мы из функции (return)
-        if (cmd.code === "return") {
-            inFunction = false;
-            debugLog("  Выход из функции, inFunction=false");
-        }
-        
         steps++;
     }
-    
-    debugLog("=== ВЫПОЛНЕНИЕ ЗАВЕРШЕНО, шагов=" + steps + " ===");
     return !hasSemanticErrors();
 }
 
@@ -522,10 +422,10 @@ function getPseudoType(word) {
     if (word == "JmpF") return 31;
     if (word == "DECLARE") return 70;
     if (word == "DUP") return 80;
+    if (word == "RETURN") return 90;
     if (isPseudoLabelDef(word)) return 40;
     if (word == "cast") return 50;
     if (isPseudoCall(word)) return 60;
-    if (word == "RETURN") return 90;
     return 0;
 }
 function isPseudoLabelDef(word) { return typeof word == "string" && word.length > 0 && word[word.length-1] == ":"; }
@@ -547,11 +447,7 @@ function toPseudoCode() {
         if (type == 60) { emitCallPseudo(word); continue; }
         if (type == 70) { emitDeclarePseudo(); continue; }
         if (type == 80) { emitDupPseudo(); continue; }
-        if (type == 90) {
-            var val = operandStk.pop();
-            emitPseudo("return", val, "_", "_");
-            continue;
-        }
+        if (type == 90) { emitReturnPseudo(); continue; }
     }
 }
 
@@ -574,11 +470,6 @@ function emitAssignPseudo() {
     emitPseudo("=", value, "_", target);
     operandStk.push(value);
 }
-
-
-
-
-
 function emitJumpPseudo() { var label = operandStk.pop(); emitPseudo("Jmp", "_", label, "_"); }
 function emitJumpFalsePseudo() { var label = operandStk.pop(), condition = operandStk.pop(); emitPseudo("JmpF", condition, label, "_"); }
 function emitLabelPseudo(labelWord) { var label = labelWord.substring(0, labelWord.length-1); emitPseudo("LABEL", label, "_", "_"); }
@@ -594,43 +485,17 @@ function emitCallPseudo(callWord) {
     emitPseudo("call", funcName, String(argc), result);
     operandStk.push(result);
 }
+function emitReturnPseudo() {
+    var val = operandStk.pop();
+    if (val === undefined) val = "_";
+    emitPseudo("return", val, "_", "_");
+}
 function pseudoCodeToString() {
     var r = "\n\nПсевдокод (тетрады: код op1 op2 результат):\n";
     for (var i = 0; i < pseudo.length; i++) r += pseudo[i].code + " " + pseudo[i].op1 + " " + pseudo[i].op2 + " " + pseudo[i].res + "\n";
     return r;
 }
-function reorderPseudoCode() {
-    // Ищем все DECLARE и обрабатываем с конца, чтобы индексы не сбивались
-    for (var i = pseudo.length - 1; i >= 0; i--) {
-        if (pseudo[i].code !== "DECLARE") continue;
-        
-        // Предполагаем, что после DECLARE идёт LABEL с тем же именем
-            var labelIdx = i + 1;
-        if (labelIdx >= pseudo.length || pseudo[labelIdx].code !== "LABEL") continue;
-        
-        // Тело функции – команды от начала до i (или от предыдущего DECLARE+LABEL)
-        var startIdx = 0;
-        // Найдём предыдущий DECLARE, чтобы взять только тело текущей функции
-        for (var j = i - 1; j >= 0; j--) {
-            if (pseudo[j].code === "DECLARE") {
-                startIdx = j + 2; // после предыдущего DECLARE и его LABEL
-                break;
-            }
-        }
-        var body = pseudo.slice(startIdx, i);
-        var after = pseudo.slice(labelIdx + 1);
-        // Новый порядок: DECLARE, LABEL, тело, остальное
-        var newPart = [pseudo[i], pseudo[labelIdx]].concat(body).concat(after);
-        // Заменяем кусок от startIdx до конца
-        pseudo = pseudo.slice(0, startIdx).concat(newPart);
-        // После перестановки продолжаем поиск (индексы сместились, но мы идём с конца)
-    }
-}
-function printPseudoCode() { 
-    toPseudoCode(); 
-    reorderPseudoCode();
-    toPFR(pseudoCodeToString()); 
-}
+function printPseudoCode() { toPseudoCode(); toPFR(pseudoCodeToString()); }
 
 // ============================
 // Постфиксная форма (ПФЗ) и вспомогательные функции
@@ -693,10 +558,7 @@ function pushBinOp(op) {
 function flushBinOp() { if (opStk.length>0) { if (peek(opStk)=="(") opStk.pop(); else toPFR(opStk.pop()); } }
 function flushUnOp() {
     if (opStk.length>0) {
-        var op = opStk.pop();
-        if (op == "u_minus_to_bin") toPFRs("0","-");
-        else if (op == "u_plus_to_bin") toPFRs("0","+");
-        else toPFR(op);
+        toPFR(opStk.pop());
     }
 }
 function popLeftBrack() { if (opStk.length>0 && peek(opStk)=="(") opStk.pop(); }
@@ -704,9 +566,7 @@ function flushAllOp() {
     while (opStk.length>0) {
         var op = opStk.pop(), cleanOp = op ? op.toString() : "";
         if (cleanOp === "(" || cleanOp === ")" || cleanOp === "{" || cleanOp === "}" || cleanOp === ";") continue;
-        if (cleanOp === "u_minus_to_bin") toPFRs("0","-");
-        else if (cleanOp === "u_plus_to_bin") toPFRs("0","+");
-        else toPFR(cleanOp);
+        toPFR(cleanOp);
     }
     declStk = [];
 }
@@ -729,14 +589,14 @@ function saveForStep(parser) { peek(foreachStk).step = parser.currentLexem[1]; }
 function endFor() { var f=foreachStk.pop(); toPFRs(f.v,f.step,"+",f.v,"=","LabelStart_"+f.id,"Jmp","LabelEnd_"+f.id+":"); }
 function emitLeave() { if(foreachStk.length>0) toPFRs("LabelEnd_"+peek(foreachStk).id,"Jmp"); }
 
-// Унарные операции
+// Унарные операции (исправлено)
 function pushUnOp(op) {
-    if(op=="-") opStk.push("u_minus_to_bin");
-    else if(op=="+") opStk.push("u_plus_to_bin");
+    if (op == "-") opStk.push("u-");
+    else if (op == "+") opStk.push("u+");
     else opStk.push(op);
 }
 
-// Switch (choice) — ИСПРАВЛЕНА
+// Switch (choice)
 var switchTempVarStack = [];
 var tempCaseConst = 0;
 var tempConst = 0;
@@ -759,7 +619,6 @@ function emitSwitchExpr() {
 }
 function startOption() {
     var sw = peek(switchStk);
-    // Загружаем значение из временной переменной на стек
     toPFR(sw.tempVar);
     toPFR("DUP");
 }
@@ -782,82 +641,69 @@ function endSwitch() {
     toPFR(sw.endLabel + ":");
 }
 
-// Типизация
-var typizationId = "", typizationType = "";
-function pushTypeCast(x) { typizationType = x; castStk.push(x); }
-function saveTypizationId(x) { typizationId = x; }
+// Типизация (объявление переменной)
+function declareVariable(name, type) {
+    addObject(name, "variable: " + type, "(uninitialized)", 0, []);
+    semanticMemory[name] = { value: undefined, type: type };
+}
 
-// Вызов функций
+// Функции объявления и вызова функций
 var fnStk = [];
 function pushFnName(x) { fnStk.push({ name: x, isFunc: false, argCount: 0 }); }
-function startArgs() { var fn = peek(fnStk); fn.isFunc = true; }
+function startArgs() { var fn = peek(fnStk); if (fn) fn.isFunc = true; }
 function cancelFnName() { fnStk.pop(); }
-function pushArg() { var fn = peek(fnStk); if (fn) fn.argCount++; }
-function emitFnCall() { var fn = fnStk.pop(); toPFRs(fn.argCount, fn.name, "CALL"); }
-
-// Объявление функций
-var declStk = [];
-var pendingFunc = null;
-var savedFuncData = null;
-var funcBodyBuffer = null;
-
-function startFuncDecl(x) {
-    declStk.push({ retType: x, args: [], argCount: 0 });
-    originalTracerPut = tracer.put;
-    funcBodyBuffer = [];
-    tracer.put = function(x) {
-        funcBodyBuffer.push(x);
-    };
-}
-function endFuncDecl() {
-    // Возвращаем старый способ записи
-    tracer.put = originalTracerPut;
-    // Сохраняем накопленный рецепт в pendingFunc
-    if (pendingFunc) {
-        pendingFunc.body = funcBodyBuffer.slice(); // копируем
+function pushArg() {
+    if (fnStk.length > 0) {
+        var fn = fnStk[fnStk.length-1];
+        fn.argCount++;
+    } else {
+        globalArgCount++;
     }
-    funcBodyBuffer = null;
 }
-function emitPendingFunc() { 
-    var funcData = declStk.pop(); 
-    pendingFunc = { retType: funcData.retType, args: funcData.args, argCount: funcData.argCount };
+function emitFnCall() {
+    var fn = fnStk.pop();
+    var argCount = fn ? fn.argCount : globalArgCount;
+    if (!fn) globalArgCount = 0;
+    toPFRs(argCount, fn ? fn.name : "unknown", "CALL");
 }
 function addFuncArg(argType, argId) {
-    if (declStk.length > 0) {
-        var currentDecl = peek(declStk);
-        currentDecl.args.push(argType);
-        currentDecl.args.push(argId);
-        currentDecl.argCount++;
-    }
+    currentArgList.push({ type: argType, name: argId });
 }
-function emitFuncDecl() {
-    if (pendingFunc !== null && savedIdName) {
-        // 1. Имя функции
-        toPFR(savedIdName);
-        // 2. Количество аргументов
-        toPFR(pendingFunc.argCount);
-        // 3. Имена аргументов
-        var argNames = [];
-        for (var i = 0; i < pendingFunc.argCount; i++) {
-            argNames.push(pendingFunc.args[2*i+1]);
-        }
-        toPFR(argNames.join(","));
-        // 4. DECLARE
-        toPFR("DECLARE");
-        // 5. Метка входа
-        toPFR(savedIdName + ":");
-        
-        // 6. Тело функции (из буфера)
-        if (pendingFunc.body) {
-            for (var j = 0; j < pendingFunc.body.length; j++) {
-                toPFR(pendingFunc.body[j]);
-            }
-        }
-        
-        pendingFunc = null;
-    } else {
-        toPFR(savedIdName);
-        toPFR("=");
+function startFunction(name, retType, args) {
+    currentFuncName = name;
+    currentFuncRetType = retType;
+    currentFuncArgs = args;
+    toPFR("Label_" + name + ":");
+    toPFR(name);
+    toPFR(args.length);
+    var argNames = [];
+    for (var i = 0; i < args.length; i++) argNames.push(args[i].name);
+    toPFR(argNames.join(","));
+    toPFR("DECLARE");
+}
+function endFunction() {
+    if (currentFuncRetType === "void") {
+        toPFR("RETURN");
+        toPFR("_");
     }
+    toPFR("Label_End" + currentFuncName + ":");
+    currentFuncName = "";
+    currentFuncArgs = [];
+    currentFuncRetType = "";
 }
 
+// Поддержка дополнительных синтаксических элементов (не все нужны для работы)
+var declStk = [];
+function startFuncDecl(x) { declStk.push({ retType: x, args: [], argCount: 0 }); }
+function emitFuncDecl() {
+    if (declStk.length > 0) {
+        var currentDecl = declStk.pop();
+        toPFR(currentDecl.retType);
+        for (var i = 0; i < currentDecl.args.length; i++) toPFR(currentDecl.args[i]);
+        toPFR(currentDecl.argCount);
+        toPFR("DECLARE");
+        var names = [];
+        for (var j = 0; j < currentDecl.argCount; j++) names.push(currentDecl.args[2*j+1]);
+        toPFR(names.join(","));
+    }
+}

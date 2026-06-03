@@ -11,7 +11,6 @@ var vmPendingArgs = [];
 var semanticErrors = [];
 var currentIp = 0;
 var currentFunction = null;
-var castStk = [];
 
 // Таблица объектов
 var objectTable = [];
@@ -45,12 +44,14 @@ function updateObjectValue(name, value, type) {
 
 function printObjectTable() {
     var r = "\n\nТаблица объектов после выполнения:\n";
-    r += "id\tname\tvalue\ttype\n";
-    r += "---\t----\t-----\t----\n";
+    r += "id\tname\tvalue\ttype\t\targCount\targs\n";
+    r += "---\t----\t-----\t----\t\t--------\t----\n";
     for (var i = 0; i < objectTable.length; i++) {
         var obj = objectTable[i];
-        if (obj.type === "function") continue; // не выводим функции
-        r += obj.id + "\t" + obj.name + "\t" + obj.value + "\t" + obj.type + "\n";
+        r += obj.id + "\t" + obj.name + "\t" + obj.value + "\t" + obj.type;
+        if (obj.type.length < 16) r += "\t\t";
+        else r += "\t";
+        r += obj.argCount + "\t\t" + obj.args + "\n";
     }
     return r;
 }
@@ -103,7 +104,7 @@ function buildVmFunctions() {
                     paramNames: paramNames
                 };
             }
-            //addObject(funcName, "function", "-", paramCount, paramNames);
+            addObject(funcName, "function", "-", paramCount, paramNames);
         }
     }
     for (var funcName in vmFunctions) {
@@ -119,7 +120,7 @@ function buildVmFunctions() {
                     paramCount: 0,
                     paramNames: []
                 };
-                //addObject(label, "function", "-", 0, []);
+                addObject(label, "function", "-", 0, []);
             }
         }
     }
@@ -177,21 +178,20 @@ function getValue(name) {
     return undefined;
 }
 
-function setValue(name, value, forcedType) {
+function setValue(name, value) {
     if (name === undefined || name === "_") return;
     if (value === undefined) {
         addSemanticError("Попытка присвоить неопределённое значение переменной " + name);
         return;
     }
-    var type;
-    if (forcedType) {
-        type = forcedType;
-    } else {
-        // Определяем тип автоматически
-        if (typeof value === "number") type = (value % 1 === 0) ? "int" : "float";
-        else if (typeof value === "string") type = "string";
-        else if (typeof value === "boolean") type = "bool";
-        else type = "unknown";
+    // Определяем тип
+    var type = "unknown";
+    if (typeof value === "number") {
+        type = (value % 1 === 0) ? "int" : "float";
+    } else if (typeof value === "string") {
+        type = "string";
+    } else if (typeof value === "boolean") {
+        type = "bool";
     }
     semanticMemory[name] = { value: value, type: type };
     updateObjectValue(name, value, type);
@@ -268,26 +268,14 @@ function executePseudoCommand(cmd, ip) {
         return ip + 1;
     }
     if (code === "cast") {
-        var varName = op1;
-        var targetType = op2;
-        var srcVal = getValue(varName);
+        var srcVal = getValue(op1), targetType = op2, casted;
         if (srcVal === undefined) return ip + 1;
-        var casted;
-        if (targetType === "int") {
-            casted = Math.floor(Number(srcVal));
-        } else if (targetType === "float") {
-            casted = Number(srcVal);
-        } else if (targetType === "string") {
-            casted = String(srcVal);
-        } else if (targetType === "char") {
-            if (typeof srcVal === "string") casted = srcVal[0] || '\0';
-            else casted = String.fromCharCode(Number(srcVal));
-        } else {
-            addSemanticError("Неизвестный тип приведения: " + targetType);
-            casted = srcVal;
-        }
-        semanticMemory[varName] = { value: casted, type: targetType };
-        updateObjectValue(varName, casted, targetType);
+        if (targetType === "int") casted = Math.floor(Number(srcVal));
+        else if (targetType === "float") casted = Number(srcVal);
+        else if (targetType === "string") casted = String(srcVal);
+        else if (targetType === "char") casted = String.fromCharCode(Number(srcVal));
+        else { addSemanticError("Неизвестный тип приведения: " + targetType); casted = srcVal; }
+        if (res !== "_") setValue(res, casted);
         return ip + 1;
     }
     if (code === "param") {
@@ -552,15 +540,11 @@ function pushBinOp(op) {
 }
 function flushBinOp() { if (opStk.length>0) { if (peek(opStk)=="(") opStk.pop(); else toPFR(opStk.pop()); } }
 function flushUnOp() {
-    if (opStk.length > 0) {
+    if (opStk.length>0) {
         var op = opStk.pop();
-        if (op == "u_minus_to_bin") {
-            toPFRs("0", "-");
-        } else if (op == "u_plus_to_bin") {
-            toPFRs("0", "+");
-        } else {
-            toPFR(op);
-        }
+        if (op == "u_minus_to_bin") toPFRs("0","-");
+        else if (op == "u_plus_to_bin") toPFRs("0","+");
+        else toPFR(op);
     }
 }
 function popLeftBrack() { if (opStk.length>0 && peek(opStk)=="(") opStk.pop(); }
@@ -647,7 +631,7 @@ function endSwitch() {
 }
 
 // Типизация
-var typizationId = "", typizationType = ""; var varName = "";var typeName = "";
+var typizationId = "", typizationType = "";
 function pushTypeCast(x) { typizationType = x; castStk.push(x); }
 function saveTypizationId(x) { typizationId = x; }
 
